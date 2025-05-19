@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Redirect } from "wouter";
 import MainLayout from "@/components/MainLayout";
+import { FileUpload } from "@/components/ui/file-upload";
 
 // Login form schema
 const loginSchema = z.object({
@@ -73,12 +74,20 @@ interface AuthPageProps {
   isModal?: boolean;
   onClose?: () => void;
   defaultToProvider?: boolean;
+  defaultToRegister?: boolean;
 }
 
-export default function AuthPage({ isModal = false, onClose, defaultToProvider = false }: AuthPageProps) {
+export default function AuthPage({ 
+  isModal = false, 
+  onClose, 
+  defaultToProvider = false,
+  defaultToRegister = false 
+}: AuthPageProps) {
   const { user, loginMutation, registerMutation } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>(defaultToProvider ? "register" : "login");
+  const [activeTab, setActiveTab] = useState<string>(defaultToRegister ? "register" : "login");
   const [accountType, setAccountType] = useState<string>(defaultToProvider ? "provider" : "client");
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [profilePicture, setProfilePicture] = useState<File | null>(null);
   const { toast } = useToast();
   
   // Fetch service categories for provider signup
@@ -113,25 +122,170 @@ export default function AuthPage({ isModal = false, onClose, defaultToProvider =
       yearsOfExperience: "",
       availability: "",
     },
+    mode: "onBlur"
   });
+
+  // Watch form values for debugging
+  const formValues = registerForm.watch();
+  useEffect(() => {
+    console.log('Form values changed:', formValues);
+  }, [formValues]);
+
+  // Handle resend verification
+  const handleResendVerification = async (email: string) => {
+    try {
+      setResendingVerification(true);
+      const response = await fetch("/api/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to resend verification email");
+      }
+
+      toast({
+        title: "Verification email sent",
+        description: "Please check your email for the verification link.",
+      });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to resend verification email",
+        variant: "destructive",
+      });
+    } finally {
+      setResendingVerification(false);
+    }
+  };
 
   // Handle login form submission
   function onLoginSubmit(values: LoginFormValues) {
-    loginMutation.mutate(values);
+    loginMutation.mutate(values, {
+      onError: (error) => {
+        if (error.message?.includes("verify your email")) {
+          toast({
+            title: "Email not verified",
+            description: (
+              <div className="space-y-2">
+                <p>{error.message}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={resendingVerification}
+                  onClick={() => handleResendVerification(values.email)}
+                >
+                  {resendingVerification ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    "Resend verification email"
+                  )}
+                </Button>
+              </div>
+            ),
+          });
+        } else {
+          toast({
+            title: "Error",
+            description: error.message,
+            variant: "destructive",
+          });
+        }
+      },
+    });
   }
 
   // Handle register form submission
-  function onRegisterSubmit(values: RegisterFormValues) {
-    // Convert relevant fields
-    const hourlyRate = values.hourlyRate ? parseFloat(values.hourlyRate) : undefined;
-    const yearsOfExperience = values.yearsOfExperience ? parseInt(values.yearsOfExperience) : undefined;
+  async function onRegisterSubmit(values: RegisterFormValues) {
+    console.log('Starting registration submission with raw values:', values);
     
-    registerMutation.mutate({
-      ...values,
-      isServiceProvider: accountType === "provider",
-      hourlyRate,
-      yearsOfExperience,
-    });
+    try {
+      // Create form data for multipart/form-data submission
+      const formData = new FormData();
+      
+      // Add all required fields
+      const requiredFields = {
+        username: values.username,
+        email: values.email,
+        password: values.password,
+        firstName: values.firstName,
+        lastName: values.lastName,
+        confirmPassword: values.confirmPassword,
+        isServiceProvider: accountType === "provider"
+      };
+      
+      console.log('Required fields:', requiredFields);
+      
+      // Validate required fields
+      for (const [key, value] of Object.entries(requiredFields)) {
+        if (value === undefined || value === '') {
+          throw new Error(`${key} is required`);
+        }
+        formData.append(key, value.toString());
+      }
+      
+      // Add provider-specific fields if this is a provider account
+      if (accountType === "provider") {
+        const providerFields = {
+          categoryId: values.categoryId,
+          hourlyRate: values.hourlyRate,
+          bio: values.bio || '',
+          yearsOfExperience: values.yearsOfExperience || '0',
+          availability: values.availability || ''
+        };
+        
+        console.log('Provider fields:', providerFields);
+        
+        for (const [key, value] of Object.entries(providerFields)) {
+          if (value !== undefined) {
+            formData.append(key, value.toString());
+          }
+        }
+      }
+      
+      // Add profile picture if selected
+      if (profilePicture) {
+        formData.append('profilePicture', profilePicture);
+        console.log('Added profile picture to form data');
+      }
+      
+      // Log final form data for debugging
+      console.log('Final form data entries:');
+      for (const [key, value] of formData.entries()) {
+        console.log(`${key} = ${value}`);
+      }
+      
+      registerMutation.mutate(formData, {
+        onSuccess: (data) => {
+          console.log('Registration successful:', data);
+          toast({
+            title: "Registration successful",
+            description: "Please check your email to verify your account.",
+          });
+        },
+        onError: (error) => {
+          console.error('Registration failed:', error);
+          toast({
+            title: "Registration failed",
+            description: error.message,
+            variant: "destructive",
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Form validation error:', error);
+      toast({
+        title: "Validation Error",
+        description: error instanceof Error ? error.message : "Please fill in all required fields",
+        variant: "destructive",
+      });
+    }
   }
 
   // Handle account type change
@@ -268,6 +422,13 @@ export default function AuthPage({ isModal = false, onClose, defaultToProvider =
 
           <Form {...registerForm}>
             <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
+              <div className="space-y-4">
+                <FileUpload
+                  onChange={setProfilePicture}
+                  value={profilePicture}
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={registerForm.control}
@@ -502,16 +663,7 @@ export default function AuthPage({ isModal = false, onClose, defaultToProvider =
   // If it's a modal, just return the content
   if (isModal) {
     return (
-      <div className="relative">
-        {isModal && onClose && (
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 transition"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        )}
+      <div className="relative max-h-[80vh] overflow-y-auto scrollbar-hide pt-8">
         {authContent}
       </div>
     );

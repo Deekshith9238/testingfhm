@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, doublePrecision, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -14,6 +14,9 @@ export const users = pgTable("users", {
   isServiceProvider: boolean("is_service_provider").notNull().default(false),
   profilePicture: text("profile_picture"),
   phoneNumber: text("phone_number"),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  verificationToken: text("verification_token"),
+  verificationTokenExpires: timestamp("verification_token_expires"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -69,7 +72,35 @@ export const serviceProvidersRelations = relations(serviceProviders, ({ one, man
   reviews: many(reviews),
 }));
 
-// Tasks or job postings
+// Add notification types
+export const notificationTypes = {
+  NEW_TASK: 'new_task',
+  TASK_ACCEPTED: 'task_accepted',
+  TASK_COMPLETED: 'task_completed',
+  TASK_CANCELLED: 'task_cancelled',
+} as const;
+
+// Notifications table
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  data: jsonb("data"),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Notifications relations
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+}));
+
+// Update tasks table to include acceptance tracking
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").notNull().references(() => users.id),
@@ -79,11 +110,13 @@ export const tasks = pgTable("tasks", {
   location: text("location").notNull(),
   budget: doublePrecision("budget"),
   status: text("status").notNull().default("open"),
+  acceptedById: integer("accepted_by_id").references(() => serviceProviders.id),
+  acceptedAt: timestamp("accepted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 });
 
-// Tasks relations
+// Update tasks relations
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   client: one(users, {
     fields: [tasks.clientId],
@@ -92,6 +125,10 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   category: one(serviceCategories, {
     fields: [tasks.categoryId],
     references: [serviceCategories.id],
+  }),
+  acceptedBy: one(serviceProviders, {
+    fields: [tasks.acceptedById],
+    references: [serviceProviders.id],
   }),
   serviceRequests: many(serviceRequests),
 }));
@@ -154,9 +191,15 @@ export const reviewsRelations = relations(reviews, ({ one }) => ({
 }));
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-  createdAt: true
+export const insertUserSchema = createInsertSchema(users, {
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  isServiceProvider: z.boolean().default(false),
+  profilePicture: z.string().nullable().optional(),
+  phoneNumber: z.string().nullable().optional(),
 });
 
 export const insertServiceCategorySchema = createInsertSchema(serviceCategories).omit({
@@ -185,6 +228,11 @@ export const insertReviewSchema = createInsertSchema(reviews).omit({
   createdAt: true
 });
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -203,6 +251,9 @@ export type ServiceRequest = typeof serviceRequests.$inferSelect;
 
 export type InsertReview = z.infer<typeof insertReviewSchema>;
 export type Review = typeof reviews.$inferSelect;
+
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
 
 // Extended provider type with user info
 export type ServiceProviderWithUser = ServiceProvider & {

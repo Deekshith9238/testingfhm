@@ -20,6 +20,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const [location] = useLocation();
   const { user, logoutMutation, isProvider } = useAuth();
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [defaultToRegister, setDefaultToRegister] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = () => {
@@ -28,6 +29,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   const closeDialog = () => {
     setAuthDialogOpen(false);
+    setDefaultToRegister(false);
+  };
+
+  const openAuthDialog = (showRegister: boolean = false) => {
+    setDefaultToRegister(showRegister);
+    setAuthDialogOpen(true);
   };
 
   return (
@@ -91,13 +98,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 <Button
                   variant="outline"
                   className="hidden md:block"
-                  onClick={() => setAuthDialogOpen(true)}
+                  onClick={() => openAuthDialog(false)}
                 >
                   Log in
                 </Button>
                 <Button
                   className="hidden md:block"
-                  onClick={() => setAuthDialogOpen(true)}
+                  onClick={() => openAuthDialog(true)}
                 >
                   Sign up
                 </Button>
@@ -149,7 +156,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                       <Button 
                         variant="outline" 
                         onClick={() => {
-                          setAuthDialogOpen(true);
+                          openAuthDialog(false);
                           setMobileMenuOpen(false);
                         }}
                       >
@@ -157,7 +164,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                       </Button>
                       <Button 
                         onClick={() => {
-                          setAuthDialogOpen(true);
+                          openAuthDialog(true);
                           setMobileMenuOpen(false);
                         }}
                       >
@@ -182,8 +189,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
       {/* Auth Dialog */}
       <Dialog open={authDialogOpen} onOpenChange={setAuthDialogOpen}>
-        <DialogContent className="sm:max-w-[425px] p-0">
-          <AuthPage isModal={true} onClose={closeDialog} />
+        <DialogContent className="sm:max-w-[425px] p-0 max-h-[90vh]">
+          <AuthPage 
+            isModal={true} 
+            onClose={closeDialog}
+            defaultToRegister={defaultToRegister}
+          />
         </DialogContent>
       </Dialog>
     </div>

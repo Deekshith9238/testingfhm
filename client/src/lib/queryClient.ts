@@ -1,26 +1,57 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Get the API URL from environment variable or default to the current origin
+const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const error = await res.json().catch(() => ({ message: "An error occurred" }));
+    throw new Error(`${res.status}: ${JSON.stringify(error)}`);
   }
 }
 
 export async function apiRequest(
-  method: string,
   url: string,
-  data?: unknown | undefined,
+  method: string,
+  data?: unknown,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  // Use API_URL for all requests
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
 
-  await throwIfResNotOk(res);
-  return res;
+  try {
+    const headers: Record<string, string> = {};
+    let body = data;
+
+    // Only set Content-Type for non-FormData
+    if (data && !(data instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify(data);
+    }
+
+    console.log(`Making ${method} request to ${fullUrl}`);
+    
+    const res = await fetch(fullUrl, {
+      method,
+      headers,
+      body,
+      credentials: "include",
+    });
+
+    await throwIfResNotOk(res);
+    return res;
+  } catch (error) {
+    console.error('API Request failed:', error);
+    throw error;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -29,7 +60,10 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
+    const url = queryKey[0] as string;
+    const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+    
+    const res = await fetch(fullUrl, {
       credentials: "include",
     });
 
@@ -40,18 +74,3 @@ export const getQueryFn: <T>(options: {
     await throwIfResNotOk(res);
     return await res.json();
   };
-
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
-    },
-    mutations: {
-      retry: false,
-    },
-  },
-});

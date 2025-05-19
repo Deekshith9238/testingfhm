@@ -4,13 +4,14 @@ import {
   serviceProviders, type ServiceProvider, type InsertServiceProvider,
   tasks, type Task, type InsertTask,
   serviceRequests, type ServiceRequest, type InsertServiceRequest,
-  reviews, type Review, type InsertReview
+  reviews, type Review, type InsertReview,
+  notifications, type InsertNotification, type Notification
 } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import connectPg from "connect-pg-simple";
 import { db, pool } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 const MemoryStore = createMemoryStore(session);
 
@@ -20,7 +21,8 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  getUserByVerificationToken(token: string): Promise<User | undefined>;
+  createUser(user: InsertUser & { verificationToken?: string; verificationTokenExpires?: Date }): Promise<User>;
   updateUser(id: number, user: Partial<User>): Promise<User | undefined>;
   
   // Service Category methods
@@ -56,6 +58,12 @@ export interface IStorage {
   createReview(review: InsertReview): Promise<Review>;
   getReviewsByProvider(providerId: number): Promise<Review[]>;
   
+  // Notification methods
+  createNotification(data: InsertNotification): Promise<Notification>;
+  updateNotification(id: number, data: Partial<InsertNotification>): Promise<Notification>;
+  getUnreadNotifications(userId: number): Promise<Notification[]>;
+  getUserNotifications(userId: number): Promise<Notification[]>;
+  
   // Session store
   sessionStore: session.Store;
 }
@@ -67,6 +75,7 @@ export class MemStorage implements IStorage {
   private tasks: Map<number, Task>;
   private serviceRequests: Map<number, ServiceRequest>;
   private reviews: Map<number, Review>;
+  private notifications: Map<number, Notification>;
   
   sessionStore: session.Store;
   currentId: { [key: string]: number };
@@ -78,6 +87,7 @@ export class MemStorage implements IStorage {
     this.tasks = new Map();
     this.serviceRequests = new Map();
     this.reviews = new Map();
+    this.notifications = new Map();
     
     this.currentId = {
       users: 1,
@@ -85,7 +95,8 @@ export class MemStorage implements IStorage {
       serviceProviders: 1,
       tasks: 1,
       serviceRequests: 1,
-      reviews: 1
+      reviews: 1,
+      notifications: 1
     };
     
     this.sessionStore = new MemoryStore({
@@ -129,7 +140,11 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async getUserByVerificationToken(token: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(user => user.verificationToken === token);
+  }
+
+  async createUser(insertUser: InsertUser & { verificationToken?: string; verificationTokenExpires?: Date }): Promise<User> {
     const id = this.currentId.users++;
     const createdAt = new Date();
     const user: User = { 
@@ -138,7 +153,10 @@ export class MemStorage implements IStorage {
       createdAt, 
       isServiceProvider: insertUser.isServiceProvider || false,
       profilePicture: insertUser.profilePicture || null,
-      phoneNumber: insertUser.phoneNumber || null
+      phoneNumber: insertUser.phoneNumber || null,
+      emailVerified: false,
+      verificationToken: insertUser.verificationToken || null,
+      verificationTokenExpires: insertUser.verificationTokenExpires || null
     };
     this.users.set(id, user);
     return user;
@@ -353,6 +371,45 @@ export class MemStorage implements IStorage {
     return Array.from(this.reviews.values()).filter(
       (review) => review.providerId === providerId
     );
+  }
+
+  // Notification methods
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const id = this.currentId.notifications++;
+    const createdAt = new Date();
+    const notification: Notification = {
+      ...data,
+      id,
+      createdAt,
+      read: false
+    };
+    this.notifications.set(id, notification);
+    return notification;
+  }
+
+  async updateNotification(id: number, data: Partial<InsertNotification>): Promise<Notification> {
+    const notification = await this.getNotification(id);
+    if (!notification) throw new Error("Notification not found");
+    
+    const updatedNotification = { ...notification, ...data };
+    this.notifications.set(id, updatedNotification);
+    return updatedNotification;
+  }
+
+  async getUnreadNotifications(userId: number): Promise<Notification[]> {
+    return Array.from(this.notifications.values()).filter(
+      (notification) => notification.userId === userId && !notification.read
+    );
+  }
+
+  async getUserNotifications(userId: number): Promise<Notification[]> {
+    return Array.from(this.notifications.values()).filter(
+      (notification) => notification.userId === userId
+    );
+  }
+
+  async getNotification(id: number): Promise<Notification | undefined> {
+    return this.notifications.get(id);
   }
 }
 
@@ -586,6 +643,37 @@ export class DatabaseStorage implements IStorage {
 
   async getReviewsByProvider(providerId: number): Promise<Review[]> {
     return db.select().from(reviews).where(eq(reviews.providerId, providerId));
+  }
+
+  async getUserByVerificationToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.verificationToken, token));
+    return user;
+  }
+
+  // Notification methods
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(data).returning();
+    return notification;
+  }
+
+  async updateNotification(id: number, data: Partial<InsertNotification>): Promise<Notification> {
+    const [notification] = await db.update(notifications)
+      .set(data)
+      .where(eq(notifications.id, id))
+      .returning();
+    return notification;
+  }
+
+  async getUnreadNotifications(userId: number): Promise<Notification[]> {
+    return db.select().from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)))
+      .orderBy(desc(notifications.createdAt));
+  }
+
+  async getUserNotifications(userId: number): Promise<Notification[]> {
+    return db.select().from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt));
   }
 }
 

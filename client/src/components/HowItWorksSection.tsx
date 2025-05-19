@@ -55,7 +55,7 @@ export default function HowItWorksSection() {
               </Button>
               
               <Dialog open={authDialogOpen} onOpenChange={setAuthDialogOpen}>
-                <DialogContent className="sm:max-w-[425px] p-0">
+                <DialogContent className="sm:max-w-[425px] p-0 max-h-[90vh]">
                   <AuthPage 
                     isModal={true} 
                     onClose={() => setAuthDialogOpen(false)} 
