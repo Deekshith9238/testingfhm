@@ -19,8 +19,8 @@
     "allowJs": true,
     "declaration": true,
     "sourceMap": true,
-    "types": ["node"]
+    "typeRoots": ["./types", "./node_modules/@types"]
   },
-  "include": ["./**/*", "../shared/**/*"],
+  "include": ["./**/*", "../shared/**/*", "./types/**/*"],
   "exclude": ["node_modules", "dist"]
 } 

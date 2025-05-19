@@ -14,6 +14,9 @@ RUN ls -la
 # Install dependencies with force flag
 RUN npm install --force
 
+# Create types directory
+RUN mkdir -p types
+
 # Copy shared directory
 COPY ../shared ./shared
 
