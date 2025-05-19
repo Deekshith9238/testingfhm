@@ -9,4 +9,7 @@ dist
 build
 coverage
 .DS_Store
-*.log 
+*.log
+# Explicitly include package.json
+!package.json
+!package-lock.json 
