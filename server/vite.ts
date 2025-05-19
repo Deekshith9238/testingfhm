@@ -1,7 +1,7 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import fs from "fs";
 import path from "path";
-import { createServer as createViteServer, createLogger } from "vite";
+import { createServer as createViteServer, createLogger, type ViteDevServer } from "vite";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 
@@ -29,7 +29,7 @@ export async function setupVite(app: Express, server: Server) {
     configFile: false,
     customLogger: {
       ...viteLogger,
-      error: (msg, options) => {
+      error: (msg: string, options?: any) => {
         viteLogger.error(msg, options);
         process.exit(1);
       },
@@ -39,7 +39,7 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
-  app.use("*", async (req, res, next) => {
+  app.use("*", async (req: Request, res: Response, next: NextFunction) => {
     const url = req.originalUrl;
 
     try {
@@ -58,7 +58,9 @@ export async function setupVite(app: Express, server: Server) {
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
-      vite.ssrFixStacktrace(e as Error);
+      if (e instanceof Error) {
+        vite.ssrFixStacktrace(e);
+      }
       next(e);
     }
   });
@@ -76,7 +78,7 @@ export function serveStatic(app: Express) {
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  app.use("*", (_req: Request, res: Response) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

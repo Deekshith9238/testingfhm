@@ -19,7 +19,7 @@
     "allowJs": true,
     "declaration": true,
     "sourceMap": true,
-    "types": ["node", "vite/client"]
+    "types": ["node"]
   },
   "include": ["./**/*", "../shared/**/*"],
   "exclude": ["node_modules", "dist"]
