@@ -14,6 +14,9 @@ RUN ls -la
 # Install dependencies
 RUN npm install
 
+# Copy shared directory
+COPY ../shared ./shared
+
 # Copy the rest of the application
 COPY . .
 
