@@ -11,8 +11,8 @@ COPY package.json package-lock.json* ./
 # Debug: List contents after copying package files
 RUN ls -la
 
-# Install dependencies
-RUN npm install
+# Install dependencies with force flag
+RUN npm install --force
 
 # Copy shared directory
 COPY ../shared ./shared
